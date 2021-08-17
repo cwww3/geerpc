@@ -18,7 +18,11 @@ func NewServer() *Server {
 	return &Server{}
 }
 
-var DefaultServer = NewServer()
+var defaultServer = NewServer()
+
+func Accept(lis net.Listener) {
+	defaultServer.Accept(lis)
+}
 
 func (s *Server) Accept(lis net.Listener) {
 	for true {
@@ -27,16 +31,19 @@ func (s *Server) Accept(lis net.Listener) {
 			log.Println("rpc server: accept error:", err)
 			return
 		}
+		// 拿到连接 异步处理
 		go s.ServeConn(conn)
 	}
 }
 
-func Accept(lis net.Listener) { DefaultServer.Accept(lis) }
+
 
 func (s *Server) ServeConn(conn io.ReadWriteCloser) {
 	defer func() {
 		_ = conn.Close()
 	}()
+	// FIXME 客户端首先写入 服务端首先读取
+	// 获取标记和编码
 	var opt Option
 	if err := json.NewDecoder(conn).Decode(&opt); err != nil {
 		log.Println("rpc server: options error: ", err)
@@ -46,6 +53,7 @@ func (s *Server) ServeConn(conn io.ReadWriteCloser) {
 		log.Printf("rpc server: invalid magic number %x", opt.MagicNumber)
 		return
 	}
+	// 根据编发类型得到编码处理方法
 	f := codec.NewCodecFuncMap[opt.CodecType]
 	if f == nil {
 		log.Printf("rpc server: invalid codec type %s", opt.CodecType)
@@ -60,6 +68,7 @@ func (s *Server) serveCodec(cc codec.Codec) {
 	sending := new(sync.Mutex) // make sure to send a complete response
 	wg := new(sync.WaitGroup)  // wait until all request are handled
 	for {
+		// 读取并解析客户端发送的消息
 		req, err := s.readRequest(cc)
 		if err != nil {
 			if req == nil {
@@ -70,6 +79,7 @@ func (s *Server) serveCodec(cc codec.Codec) {
 			continue
 		}
 		wg.Add(1)
+		// 处理消息
 		go s.handleRequest(cc, req, sending, wg)
 	}
 	wg.Wait()
@@ -92,8 +102,12 @@ func (s *Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
 	}
 	return &h, nil
 }
+
 // 接收请求
 func (s *Server) readRequest(cc codec.Codec) (*request, error) {
+	//FIXME 客户端是先写入head再写入body 服务端要按顺序读
+
+	// 解析head
 	h, err := s.readRequestHeader(cc)
 	if err != nil {
 		return nil, err
@@ -102,15 +116,18 @@ func (s *Server) readRequest(cc codec.Codec) (*request, error) {
 	// TODO: now we don't know the type of request argv
 	// day 1, just suppose it's string
 	req.argv = reflect.New(reflect.TypeOf(""))
+	// 解析body到argv中
 	if err = cc.ReadBody(req.argv.Interface()); err != nil {
 		log.Println("rpc server: read argv err:", err)
 	}
 	return req, nil
 }
+
 // 响应请求
 func (s *Server) sendResponse(cc codec.Codec, h *codec.Header, body interface{}, sending *sync.Mutex) {
 	sending.Lock()
 	defer sending.Unlock()
+	// 写入head和body
 	if err := cc.Write(h, body); err != nil {
 		log.Println("rpc server: write response error:", err)
 	}
@@ -122,6 +139,7 @@ func (s *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex
 	// day 1, just print argv and send a hello message
 	defer wg.Done()
 	log.Println(req.h, req.argv.Elem())
+	// 响应消息
 	req.replyv = reflect.ValueOf(fmt.Sprintf("geerpc resp %d", req.h.Seq))
 	s.sendResponse(cc, req.h, req.replyv.Interface(), sending)
 }
