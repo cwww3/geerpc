@@ -2,14 +2,14 @@ package main
 
 import (
 	"geerpc"
-	"geerpc/cmd"
+	"geerpc/common"
 	"log"
 	"net"
 )
 
 func main() {
 	//	// pick a free port
-		l, err := net.Listen("tcp", cmd.Addr)
+		l, err := net.Listen("tcp", common.Addr)
 		if err != nil {
 			log.Fatal("network error:", err)
 		}
