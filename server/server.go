@@ -17,6 +17,7 @@ import (
 	"time"
 )
 
+
 func (server *Server) Register(rcvr interface{}) error {
 	s := newService(rcvr)
 	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
